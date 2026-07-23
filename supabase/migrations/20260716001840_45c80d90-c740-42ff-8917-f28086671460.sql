@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.apply_reward_redemption() FROM PUBLIC, anon, authenticated;
