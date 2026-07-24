@@ -11,8 +11,10 @@ import { RESTRICTIONS, USDA_DV, type RestrictionId, type HealthConditionId } fro
 import { chainAppLink } from "@/lib/chain-apps";
 import { supabase } from "@/integrations/supabase/client";
 import { MenuScanner } from "@/components/MenuScanner";
+import { USDANutritionGuide } from "@/components/USDANutritionGuide";
 import { PremiumModal } from "@/components/PremiumModal";
 import { fetchUserPremiumStatus } from "@/lib/premium";
+import { firebaseSignOut } from "@/lib/firebase";
 import { InteractiveRestaurantMap } from "@/components/InteractiveRestaurantMap";
 
 type T = (key: string) => string;
@@ -78,7 +80,7 @@ function App() {
   const [favoriteChains, setFavoriteChains] = useState<string[]>([]);
   const [isPremium, setIsPremium] = useState(false);
   const [premiumModalOpen, setPremiumModalOpen] = useState(false);
-  const [appTab, setAppTab] = useState<"fastfood" | "scanner">("fastfood");
+  const [appTab, setAppTab] = useState<"fastfood" | "scanner" | "nutrition">("fastfood");
 
   const t = tFor(language);
   const fetchBalance = useServerFn(getGemsBalance);
@@ -197,9 +199,38 @@ function App() {
       restrictions: RestrictionId[];
       language: string;
       healthConditions: HealthConditionId[];
+      priceBucket: PriceBucketId;
     }) => recommend({ data: v }),
     onSuccess: (data) => setMenu(data),
   });
+
+  const fetchMenuForSelected = (
+    chain: string,
+    restrictionsSet: Set<RestrictionId>,
+    bucket: PriceBucketId,
+    lang = language,
+  ) => {
+    setMenu(null);
+    menuMut.mutate({
+      chain,
+      restrictions: Array.from(restrictionsSet),
+      language: lang,
+      healthConditions,
+      priceBucket: bucket,
+    });
+  };
+
+  const handleSelectPlace = (p: NearbyPlace) => {
+    setSelected(p);
+    fetchMenuForSelected(p.chain, picked, priceBucket);
+  };
+
+  const handlePriceBucketChange = (bucket: PriceBucketId) => {
+    setPriceBucket(bucket);
+    if (selected) {
+      fetchMenuForSelected(selected.chain, picked, bucket);
+    }
+  };
 
   const useGPS = () => {
     setGpsError(null);
@@ -268,33 +299,27 @@ function App() {
   };
 
   const toggle = (id: RestrictionId) => {
-    if (!selected) return;
     const next = new Set(picked);
     if (next.has(id)) next.delete(id);
     else next.add(id);
     setPicked(next);
-    setMenu(null);
-    menuMut.mutate({
-      chain: selected.chain,
-      restrictions: Array.from(next),
-      language,
-      healthConditions,
-    });
+    if (selected) {
+      fetchMenuForSelected(selected.chain, next, priceBucket);
+    }
   };
 
   const runRecommend = () => {
     if (!selected) return;
-    setMenu(null);
-    menuMut.mutate({
-      chain: selected.chain,
-      restrictions: Array.from(picked),
-      language,
-      healthConditions,
-    });
+    fetchMenuForSelected(selected.chain, picked, priceBucket);
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await firebaseSignOut();
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Ignore supabase signOut errors
+    }
     navigate({ to: "/auth" });
   };
 
@@ -403,7 +428,13 @@ function App() {
           <div className="flex items-center gap-2">
             <select
               value={language}
-              onChange={(e) => setLanguage(e.target.value)}
+              onChange={(e) => {
+                const nextLang = e.target.value;
+                setLanguage(nextLang);
+                if (selected) {
+                  fetchMenuForSelected(selected.chain, picked, priceBucket, nextLang);
+                }
+              }}
               className="rounded-full bg-card border border-border px-3 py-1.5 text-xs outline-none focus:border-foreground cursor-pointer"
               aria-label="Language"
               title="Language"
@@ -469,11 +500,11 @@ function App() {
 
       <div className="px-5 pb-24">
         {/* Mode Switcher */}
-        <div className="flex items-center justify-center gap-2 mb-6 max-w-md mx-auto">
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-6 max-w-xl mx-auto">
           <button
             onClick={() => setAppTab("fastfood")}
             className={
-              "flex-1 py-2.5 px-4 rounded-full text-xs font-semibold border transition shadow-sm " +
+              "flex-1 py-2.5 px-3.5 rounded-full text-xs font-semibold border transition shadow-sm whitespace-nowrap " +
               (appTab === "fastfood"
                 ? "bg-primary text-primary-foreground border-primary"
                 : "bg-card text-foreground border-border hover:border-foreground")
@@ -484,7 +515,7 @@ function App() {
           <button
             onClick={() => setAppTab("scanner")}
             className={
-              "flex-1 py-2.5 px-4 rounded-full text-xs font-semibold border transition shadow-sm flex items-center justify-center gap-1.5 " +
+              "flex-1 py-2.5 px-3.5 rounded-full text-xs font-semibold border transition shadow-sm flex items-center justify-center gap-1.5 whitespace-nowrap " +
               (appTab === "scanner"
                 ? "bg-primary text-primary-foreground border-primary"
                 : "bg-card text-foreground border-border hover:border-foreground")
@@ -501,9 +532,22 @@ function App() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setAppTab("nutrition")}
+            className={
+              "flex-1 py-2.5 px-3.5 rounded-full text-xs font-semibold border transition shadow-sm whitespace-nowrap " +
+              (appTab === "nutrition"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-card text-foreground border-border hover:border-foreground")
+            }
+          >
+            🥗 USDA Nutrition Guide
+          </button>
         </div>
 
-        {appTab === "scanner" ? (
+        {appTab === "nutrition" ? (
+          <USDANutritionGuide language={language} />
+        ) : appTab === "scanner" ? (
           <MenuScanner
             isPremium={isPremium}
             onOpenPremiumModal={() => setPremiumModalOpen(true)}
@@ -535,7 +579,7 @@ function App() {
                 loading={nearbyMut.isPending}
                 error={nearbyMut.error?.message}
                 places={places}
-                onSelect={(p) => setSelected(p)}
+                onSelect={handleSelectPlace}
                 onBack={reset}
                 userCoords={coords}
                 apiKey={API_KEY}
@@ -552,7 +596,7 @@ function App() {
                 picked={picked}
                 onToggle={toggle}
                 priceBucket={priceBucket}
-                onPriceBucket={setPriceBucket}
+                onPriceBucket={handlePriceBucketChange}
                 onBack={backToPlaces}
                 onRun={runRecommend}
                 loading={menuMut.isPending}
@@ -646,7 +690,7 @@ function App() {
 
 function LocationStep(props: {
   t: T;
-  onGPS: () => void;
+  onGPS?: () => void;
   onAddress: (e: React.FormEvent) => void;
   addressInput: string;
   setAddressInput: (v: string) => void;
@@ -673,19 +717,6 @@ function LocationStep(props: {
       <p className="mt-4 text-muted-foreground max-w-md">{t("intro")}</p>
 
       <div className="mt-8 space-y-3">
-        <button
-          onClick={props.onGPS}
-          disabled={props.loading}
-          className="w-full rounded-full bg-primary text-primary-foreground py-4 text-sm font-medium tracking-wide transition-transform active:scale-[0.98] hover:opacity-90 disabled:opacity-50 touch-manipulation"
-        >
-          {props.loading ? t("gettingLocation") : t("useLocation")}
-        </button>
-        {props.gpsError && <p className="text-xs text-destructive">{props.gpsError}</p>}
-        <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
-          <div className="h-px flex-1 bg-border" /> {t("or")}{" "}
-          <div className="h-px flex-1 bg-border" />
-        </div>
-
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -748,6 +779,16 @@ function PlacesStep(props: {
 }) {
   const { t } = props;
   const [selectedPlaceOnMap, setSelectedPlaceOnMap] = useState<NearbyPlace | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredPlaces = useMemo(() => {
+    if (!props.places) return [];
+    if (!searchQuery.trim()) return props.places;
+    const q = searchQuery.toLowerCase().trim();
+    return props.places.filter(
+      (p) => p.chain.toLowerCase().includes(q) || p.address.toLowerCase().includes(q),
+    );
+  }, [props.places, searchQuery]);
 
   const BackBtn = (
     <button
@@ -780,89 +821,101 @@ function PlacesStep(props: {
     <section className="mt-4">
       {BackBtn}
 
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
         <h2 className="text-2xl text-serif">
-          {props.places.length} {t("spotsNearby")}
+          {filteredPlaces.length} {t("spotsNearby")}
         </h2>
-        <span className="text-xs text-muted-foreground">Tap marker or card for directions</span>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Filter restaurants by name (e.g. Chipotle)..."
+          className="rounded-full border border-border bg-card px-4 py-2 text-xs outline-none focus:border-foreground min-w-[220px]"
+        />
       </div>
 
       {/* Interactive Google Map / Proximity Radar */}
       <InteractiveRestaurantMap
         apiKey={props.apiKey}
         userCoords={props.userCoords}
-        places={props.places}
+        places={filteredPlaces}
         selectedPlace={selectedPlaceOnMap}
         onSelectPlace={setSelectedPlaceOnMap}
         onViewMenu={(p) => props.onSelect(p)}
         favoriteChains={props.favoriteChains}
       />
 
-      <ul className="space-y-3">
-        {props.places.map((p) => {
-          const isFav = props.favoriteChains?.includes(p.chain);
-          const isMapFocused = selectedPlaceOnMap?.id === p.id;
-          const directionsUrl = `https://www.google.com/maps/dir/?api=1&origin=${props.userCoords.lat},${props.userCoords.lng}&destination=${p.lat},${p.lng}&travelmode=driving`;
-          const locationUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.chain + " " + p.address)}`;
+      {filteredPlaces.length === 0 ? (
+        <p className="text-xs text-muted-foreground mt-4 text-center">
+          No restaurants match "{searchQuery}". Try clearing your search filter.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {filteredPlaces.map((p) => {
+            const isFav = props.favoriteChains?.includes(p.chain);
+            const isMapFocused = selectedPlaceOnMap?.id === p.id;
+            const directionsUrl = `https://www.google.com/maps/dir/?api=1&origin=${props.userCoords.lat},${props.userCoords.lng}&destination=${p.lat},${p.lng}&travelmode=driving`;
+            const locationUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.chain + " " + p.address)}`;
 
-          return (
-            <li
-              key={p.id}
-              className={
-                "rounded-2xl bg-card border p-4.5 transition-all shadow-sm " +
-                (isMapFocused
-                  ? "border-primary ring-2 ring-primary/20 bg-primary/5"
-                  : "border-border hover:border-foreground/40")
-              }
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-base font-bold text-foreground">{p.chain}</span>
-                    {isFav && (
-                      <span className="text-[10px] uppercase font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/20">
-                        ❤️ Favorite Chain
+            return (
+              <li
+                key={p.id}
+                className={
+                  "rounded-2xl bg-card border p-4.5 transition-all shadow-sm " +
+                  (isMapFocused
+                    ? "border-primary ring-2 ring-primary/20 bg-primary/5"
+                    : "border-border hover:border-foreground/40")
+                }
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-base font-bold text-foreground">{p.chain}</span>
+                      {isFav && (
+                        <span className="text-[10px] uppercase font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/20">
+                          ❤️ Favorite Chain
+                        </span>
+                      )}
+                      <span className="text-[10px] uppercase font-semibold bg-accent/20 text-accent-foreground px-2 py-0.5 rounded-full">
+                        {formatDistance(p.distanceMeters)}
                       </span>
-                    )}
-                    <span className="text-[10px] uppercase font-semibold bg-accent/20 text-accent-foreground px-2 py-0.5 rounded-full">
-                      {formatDistance(p.distanceMeters)}
-                    </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 truncate">{p.address}</p>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1 truncate">{p.address}</p>
                 </div>
-              </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-2 pt-3 border-t border-border/60">
-                <button
-                  type="button"
-                  onClick={() => props.onSelect(p)}
-                  className="rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-bold hover:opacity-90 transition active:scale-95 shadow-sm"
-                >
-                  🥗 View Healthy Menu
-                </button>
+                <div className="mt-4 flex flex-wrap items-center gap-2 pt-3 border-t border-border/60">
+                  <button
+                    type="button"
+                    onClick={() => props.onSelect(p)}
+                    className="rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-bold hover:opacity-90 transition active:scale-95 shadow-sm"
+                  >
+                    🥗 View Healthy Menu
+                  </button>
 
-                <a
-                  href={directionsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-full bg-emerald-700 text-white px-3.5 py-2 text-xs font-bold hover:bg-emerald-800 transition active:scale-95 flex items-center gap-1 shadow-sm"
-                >
-                  🧭 Directions on Google Maps ↗
-                </a>
+                  <a
+                    href={directionsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-full bg-emerald-700 text-white px-3.5 py-2 text-xs font-bold hover:bg-emerald-800 transition active:scale-95 flex items-center gap-1 shadow-sm"
+                  >
+                    🧭 Directions on Google Maps ↗
+                  </a>
 
-                <a
-                  href={locationUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-full bg-muted text-foreground/80 hover:text-foreground px-3.5 py-2 text-xs font-medium border border-border hover:bg-muted/80 transition flex items-center gap-1"
-                >
-                  📍 Open Location ↗
-                </a>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+                  <a
+                    href={locationUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-full bg-muted text-foreground/80 hover:text-foreground px-3.5 py-2 text-xs font-medium border border-border hover:bg-muted/80 transition flex items-center gap-1"
+                  >
+                    📍 Open Location ↗
+                  </a>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }
@@ -890,7 +943,9 @@ function MenuStep(props: {
   const filtered = useMemo(() => {
     if (!props.menu) return null;
     if (props.priceBucket === "any") return props.menu.items;
-    return props.menu.items.filter((it) => it.price_usd >= bucket.min && it.price_usd < bucket.max);
+    return props.menu.items.filter(
+      (it) => it.price_usd === 0 || (it.price_usd >= bucket.min && it.price_usd <= bucket.max),
+    );
   }, [props.menu, props.priceBucket, bucket]);
 
   const directionsUrl = `https://www.google.com/maps/dir/?api=1&origin=${props.userCoords.lat},${props.userCoords.lng}&destination=${props.place.lat},${props.place.lng}&destination_place_id=${props.place.id}&travelmode=driving`;
@@ -1001,7 +1056,15 @@ function MenuStep(props: {
         {props.error && <p className="text-xs text-destructive mt-2">{props.error}</p>}
       </div>
 
-      {props.menu && filtered && (
+      {props.loading && (
+        <div className="mt-8">
+          <SkeletonList
+            label={`Finding best ${props.place.chain} options for your priorities & price range…`}
+          />
+        </div>
+      )}
+
+      {!props.loading && props.menu && filtered && (
         <div className="mt-8 space-y-3">
           {filtered.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("noItemsInRange")}</p>

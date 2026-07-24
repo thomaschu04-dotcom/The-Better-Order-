@@ -6,7 +6,7 @@ export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
     const localSession = getLocalUserSession();
-    const fbUser = firebaseAuth.currentUser;
+    const fbUser = firebaseAuth?.currentUser ?? null;
     let suUser = null;
     try {
       const { data } = await supabase.auth.getUser();

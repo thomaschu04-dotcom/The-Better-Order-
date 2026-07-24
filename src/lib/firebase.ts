@@ -17,8 +17,8 @@ import firebaseConfig from "../../firebase-applet-config.json";
 const isRealFirebase = firebaseConfig.apiKey && firebaseConfig.apiKey !== "remixed-api-key";
 
 let app;
-let auth: ReturnType<typeof getAuth> | any = null;
-let db: ReturnType<typeof getFirestore> | any = null;
+let auth: ReturnType<typeof getAuth> | null = null;
+let db: ReturnType<typeof getFirestore> | null = null;
 const googleProvider = new GoogleAuthProvider();
 
 if (isRealFirebase) {
@@ -97,7 +97,14 @@ export async function signUpWithEmailFirebase(email: string, pass: string, name?
     setLocalUserSession(sessionUser);
     return { user: sessionUser, error: null };
   } catch (err: unknown) {
-    // Fallback local session if Firebase Auth endpoint is restricted in iframe/sandbox
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("auth/email-already-in-use")) {
+      throw new Error("An account with this email already exists. Please sign in instead.");
+    }
+    if (msg.includes("auth/weak-password")) {
+      throw new Error("Password should be at least 6 characters.");
+    }
+    // Sandbox / fallback local session
     const sessionUser = {
       id: "user-" + Date.now(),
       email,
@@ -120,7 +127,17 @@ export async function signInWithEmailFirebase(email: string, pass: string) {
     setLocalUserSession(sessionUser);
     return { user: sessionUser, error: null };
   } catch (err: unknown) {
-    // Fallback local session if invalid credentials or backend unavailable
+    const msg = err instanceof Error ? err.message : "";
+    if (
+      msg.includes("auth/wrong-password") ||
+      msg.includes("auth/user-not-found") ||
+      msg.includes("auth/invalid-credential")
+    ) {
+      throw new Error(
+        "Invalid email or password. Please check your credentials or create an account.",
+      );
+    }
+    // Sandbox / fallback local session
     const sessionUser = {
       id: "user-" + Date.now(),
       email,
@@ -136,7 +153,9 @@ export async function firebaseSignOut() {
   if (auth) {
     try {
       await signOut(auth);
-    } catch (err) {}
+    } catch {
+      // Ignore signOut errors if disconnected or invalid session
+    }
   }
 }
 

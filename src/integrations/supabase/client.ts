@@ -38,12 +38,16 @@ function createSupabaseClient() {
     "https://placeholder.supabase.co";
   const SUPABASE_PUBLISHABLE_KEY =
     import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    (typeof process !== "undefined" && process.env ? process.env.SUPABASE_PUBLISHABLE_KEY : undefined) ||
+    (typeof process !== "undefined" && process.env
+      ? process.env.SUPABASE_PUBLISHABLE_KEY
+      : undefined) ||
     "sb_publishable_placeholder";
 
   if (
-    (!import.meta.env.VITE_SUPABASE_URL && !(typeof process !== "undefined" && process.env?.SUPABASE_URL)) ||
-    (!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY && !(typeof process !== "undefined" && process.env?.SUPABASE_PUBLISHABLE_KEY))
+    (!import.meta.env.VITE_SUPABASE_URL &&
+      !(typeof process !== "undefined" && process.env?.SUPABASE_URL)) ||
+    (!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY &&
+      !(typeof process !== "undefined" && process.env?.SUPABASE_PUBLISHABLE_KEY))
   ) {
     console.warn(
       "[Supabase] Missing Supabase environment variables. Using placeholder values to prevent startup crash.",

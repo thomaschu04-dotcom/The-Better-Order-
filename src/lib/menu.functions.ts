@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { generateText } from "ai";
+import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
-import { createLovableAiGatewayProvider } from "./ai-gateway.server";
 import {
   RESTRICTIONS,
   HEALTH_CONDITIONS,
@@ -19,6 +18,7 @@ const Input = z.object({
   chain: z.string().min(1),
   restrictions: z.array(z.enum(RestrictionIds)).default([]),
   healthConditions: z.array(z.enum(HealthConditionIds)).default([]),
+  priceBucket: z.string().default("any"),
   language: z.string().default("English"),
 });
 
@@ -55,10 +55,10 @@ function extractJson(text: string): unknown {
 export const recommendMenu = createServerFn({ method: "POST" })
   .validator((d: unknown) => Input.parse(d))
   .handler(async ({ data }): Promise<MenuResult> => {
-    const key = process.env.LOVABLE_API_KEY;
-    if (!key) throw new Error("Missing LOVABLE_API_KEY");
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) throw new Error("Missing GEMINI_API_KEY");
 
-    const gateway = createLovableAiGatewayProvider(key);
+    const ai = new GoogleGenAI({ apiKey: key });
 
     const restrictionLabels = data.restrictions
       .map((id) => RESTRICTIONS.find((r) => r.id === id)?.label)
@@ -73,15 +73,26 @@ export const recommendMenu = createServerFn({ method: "POST" })
       .filter(Boolean)
       .join("; ");
 
+    const PRICE_RANGE_MAP: Record<string, string> = {
+      under5: "UNDER $5.00 total per item (value/budget menu items)",
+      "5to10": "between $5.00 and $10.00 per item",
+      "10to15": "between $10.00 and $15.00 per item",
+      over15: "OVER $15.00 per item (family combos / large meals)",
+      any: "Any price range",
+    };
+
+    const priceText = PRICE_RANGE_MAP[data.priceBucket] || "Any price range";
+
     const prompt = `You are a nutrition expert for fast food chains.
 
 Chain: ${data.chain}
 Dietary priorities: ${restrictionLabels || "None — rank by overall healthiness"}.
 User health conditions to respect: ${conditionNotes || "None reported"}.
+Price range budget: ${priceText}.
 Response language: ${data.language}. Write "description", "ingredients", and "matchReason" fields in ${data.language}. Keep the item "name" as the real menu name from the chain (do not translate brand/product names).
 
-Pick 4-5 REAL current US menu items from ${data.chain} that best fit ALL the priorities AND are safe/appropriate given the user's health conditions above.
-Rank best fit first. If a health condition is present, avoid items that would clearly worsen it.
+Pick 4-5 REAL current US menu items from ${data.chain} that best fit ALL the dietary priorities AND fit within the target price range (${priceText}) AND are safe/appropriate given the user's health conditions above.
+Rank best fit first. If a health condition is present, avoid items that would clearly worsen it. In "matchReason", state concisely why it fits their dietary priorities and price budget.
 
 CRITICAL ACCURACY REQUIREMENTS:
 - Use the chain's OFFICIAL published nutrition information (from their US website / nutrition PDF) for calories, protein, carbs, fat, fiber, sugar, and sodium. Do not invent numbers.
@@ -103,7 +114,7 @@ Respond with ONLY a JSON object (no prose, no markdown fences) in this exact sha
       "fat_g": number,
       "fiber_g": number,
       "sugar_g": number,
-      "sodium_mg": number (from official nutrition info, in milligrams),
+      "sodium_mg": number,
       "gluten_free": boolean,
       "healthScore": number (0-100, overall healthiness),
       "matchReason": "1 short sentence"
@@ -111,12 +122,13 @@ Respond with ONLY a JSON object (no prose, no markdown fences) in this exact sha
   ]
 }`;
 
-    const { text } = await generateText({
-      model: gateway("google/gemini-2.5-flash"),
-      maxOutputTokens: 4096,
-      prompt,
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: prompt,
     });
 
+    const text = response.text;
+    if (!text) throw new Error("Empty response from AI");
     const parsed = extractJson(text);
     return MenuSchema.parse(parsed);
   });

@@ -11,7 +11,7 @@ import {
   type RestrictionId,
 } from "@/lib/chains";
 import { saveUserPremiumStatus, getLocalPremiumStatus, PREMIUM_PLAN } from "@/lib/premium";
-import { getLocalUserSession } from "@/lib/firebase";
+import { getLocalUserSession, firebaseSignOut } from "@/lib/firebase";
 
 export const Route = createFileRoute("/_authenticated/onboarding")({
   component: Onboarding,
@@ -23,6 +23,7 @@ function Onboarding() {
   const navigate = useNavigate();
   const [step, setStep] = useState<"profile" | "premium">("profile");
   const [displayName, setDisplayName] = useState("");
+  const [userEmail, setUserEmail] = useState("");
   const [borough, setBorough] = useState<string>("Manhattan");
   const [zip, setZip] = useState("10011");
   const [conditions, setConditions] = useState<Set<HealthConditionId>>(new Set());
@@ -40,6 +41,13 @@ function Onboarding() {
   useEffect(() => {
     (async () => {
       const localSess = getLocalUserSession();
+      if (localSess?.email) {
+        setUserEmail(localSess.email);
+      }
+      if (localSess?.displayName && !displayName) {
+        setDisplayName(localSess.displayName);
+      }
+
       let userRes = null;
       try {
         userRes = await supabase.auth.getUser();
@@ -47,6 +55,9 @@ function Onboarding() {
         userRes = { data: { user: null } };
       }
       const u = userRes?.data;
+      if (u?.user?.email && !userEmail) {
+        setUserEmail(u.user.email);
+      }
       const userId = u?.user?.id || localSess?.id;
       if (!userId) return;
 
@@ -74,7 +85,12 @@ function Onboarding() {
           .eq("id", userId)
           .maybeSingle();
         if (p) {
-          setDisplayName(p.display_name ?? (u?.user?.user_metadata?.display_name as string) ?? "");
+          setDisplayName(
+            p.display_name ??
+              (u?.user?.user_metadata?.display_name as string) ??
+              localSess?.displayName ??
+              "",
+          );
           setBorough((p as { borough?: string | null }).borough ?? "");
           setZip((p as { zip_code?: string | null }).zip_code ?? "");
           setConditions(new Set((p.health_conditions ?? []) as HealthConditionId[]));
@@ -168,7 +184,12 @@ function Onboarding() {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await firebaseSignOut();
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Ignore supabase signOut errors
+    }
     navigate({ to: "/auth" });
   };
 
@@ -210,6 +231,26 @@ function Onboarding() {
               Tell us where you are and what you like. We'll only show you spots and orders that
               actually fit.
             </p>
+
+            {/* Signed-In Account Information Badge */}
+            <div className="mt-5 rounded-2xl border border-border bg-card p-4 flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-primary/15 text-primary flex items-center justify-center font-bold text-sm">
+                  {(displayName || userEmail || "U")[0].toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {displayName || (userEmail ? userEmail.split("@")[0] : "Member Profile")}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {userEmail ? `Signed in as ${userEmail}` : "Active Account"}
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] uppercase font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1">
+                <span>✓</span> Signed In
+              </span>
+            </div>
 
             <section className="mt-8">
               <label className="text-xs uppercase tracking-widest text-muted-foreground">

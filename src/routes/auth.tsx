@@ -7,12 +7,15 @@ import {
   signInWithEmailFirebase,
   signUpWithEmailFirebase,
   setLocalUserSession,
+  getLocalUserSession,
 } from "@/lib/firebase";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
   beforeLoad: async () => {
     try {
+      const localSess = getLocalUserSession();
+      if (localSess) throw redirect({ to: "/onboarding" });
       const { data } = await supabase.auth.getUser();
       if (data?.user) throw redirect({ to: "/onboarding" });
     } catch (err) {
@@ -24,7 +27,7 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"signin" | "signup">("signup");
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -51,6 +54,10 @@ function AuthPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!email || !password) {
+      setError("Please enter your email and password.");
+      return;
+    }
     setLoading(true);
     try {
       if (mode === "signup") {
@@ -142,7 +149,41 @@ function AuthPage() {
           </select>
         </label>
 
-        <div className="rounded-3xl bg-card border border-border p-6">
+        <div className="rounded-3xl bg-card border border-border p-6 shadow-sm">
+          {/* Sign In vs Create Account Tabs */}
+          <div className="flex rounded-full bg-muted p-1 mb-6 border border-border">
+            <button
+              type="button"
+              onClick={() => {
+                setMode("signin");
+                setError(null);
+              }}
+              className={
+                "flex-1 py-2 rounded-full text-xs font-semibold transition " +
+                (mode === "signin"
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground")
+              }
+            >
+              🔑 Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("signup");
+                setError(null);
+              }}
+              className={
+                "flex-1 py-2 rounded-full text-xs font-semibold transition " +
+                (mode === "signup"
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground")
+              }
+            >
+              ✨ Create Account
+            </button>
+          </div>
+
           <h1 className="text-serif text-3xl">
             {mode === "signin"
               ? t("welcomeBack") || "Welcome back"
@@ -150,11 +191,79 @@ function AuthPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {mode === "signin"
-              ? t("signInSub") || "Sign in to get personalized fast-food picks."
-              : t("signUpSub") || "Save your health profile and unlock personalized picks."}
+              ? t("signInSub") ||
+                "Sign in with your email to view your profile and personalized picks."
+              : t("signUpSub") ||
+                "Save your health profile and unlock personalized fast-food recommendations."}
           </p>
 
-          <div className="mt-5 space-y-2">
+          <form onSubmit={submit} className="mt-5 space-y-3">
+            {mode === "signup" && (
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-muted-foreground block mb-1">
+                  {t("yourName") || "Your Name"}
+                </label>
+                <input
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="e.g. Alex Smith"
+                  className="w-full rounded-full border border-border bg-background px-5 py-3 text-sm outline-none focus:border-foreground"
+                />
+              </div>
+            )}
+            <div>
+              <label className="text-[10px] uppercase tracking-widest text-muted-foreground block mb-1">
+                {t("email") || "Email Address"}
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full rounded-full border border-border bg-background px-5 py-3 text-sm outline-none focus:border-foreground"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-widest text-muted-foreground block mb-1">
+                {t("password") || "Password"}
+              </label>
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-full border border-border bg-background px-5 py-3 text-sm outline-none focus:border-foreground"
+              />
+            </div>
+
+            {error && (
+              <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-full bg-primary text-primary-foreground py-3.5 text-sm font-semibold tracking-wide hover:opacity-95 transition disabled:opacity-50"
+            >
+              {loading
+                ? "Signing in…"
+                : mode === "signin"
+                  ? "Sign In with Email →"
+                  : "Create Account & Go to Profile →"}
+            </button>
+          </form>
+
+          <div className="my-5 flex items-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+            <div className="h-px flex-1 bg-border" /> {t("or")}{" "}
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <div className="space-y-2">
             <button
               type="button"
               onClick={google}
@@ -189,63 +298,6 @@ function AuthPage() {
               ⚡ Instant 1-Click Guest Access
             </button>
           </div>
-
-          <div className="my-4 flex items-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
-            <div className="h-px flex-1 bg-border" /> {t("or")}{" "}
-            <div className="h-px flex-1 bg-border" />
-          </div>
-
-          <form onSubmit={submit} className="space-y-3">
-            {mode === "signup" && (
-              <input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder={t("yourName") || "Your name"}
-                className="w-full rounded-full border border-border bg-background px-5 py-3 text-sm outline-none focus:border-foreground"
-              />
-            )}
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={t("email") || "Email"}
-              className="w-full rounded-full border border-border bg-background px-5 py-3 text-sm outline-none focus:border-foreground"
-            />
-            <input
-              type="password"
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={t("password") || "Password"}
-              className="w-full rounded-full border border-border bg-background px-5 py-3 text-sm outline-none focus:border-foreground"
-            />
-            {error && <p className="text-xs text-destructive">{error}</p>}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-full bg-primary text-primary-foreground py-3 text-sm font-medium disabled:opacity-50"
-            >
-              {loading
-                ? "…"
-                : mode === "signin"
-                  ? t("signIn") || "Sign in"
-                  : t("createAccountBtn") || "Create account"}
-            </button>
-          </form>
-
-          <button
-            onClick={() => {
-              setMode(mode === "signin" ? "signup" : "signin");
-              setError(null);
-            }}
-            className="mt-4 w-full text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground"
-          >
-            {mode === "signin"
-              ? t("newHere") || "New here? Create an account"
-              : t("haveAccount") || "Have an account? Sign in"}
-          </button>
         </div>
       </div>
     </main>

@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { scanMenuImage, type ScannedMenuResult } from "@/lib/scanner.functions";
-import { SAMPLE_MENUS, type SampleMenu } from "@/lib/sample-menus";
 import { USDA_DV, type RestrictionId, type HealthConditionId } from "@/lib/chains";
 import { getRemainingFreeScans, decrementFreeScan, MAX_FREE_SCANS } from "@/lib/premium";
 
@@ -45,7 +44,6 @@ export function MenuScanner({
 }: MenuScannerProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState<string>("image/jpeg");
-  const [restaurantInput, setRestaurantInput] = useState<string>("");
   const [scannedResult, setScannedResult] = useState<ScannedMenuResult | null>(null);
   const [scanStep, setScanStep] = useState<string>("");
   const [freeScansRemaining, setFreeScansRemaining] = useState<number>(getRemainingFreeScans);
@@ -58,11 +56,7 @@ export function MenuScanner({
   const scanFn = useServerFn(scanMenuImage);
 
   const scanMutation = useMutation({
-    mutationFn: async (payload: {
-      base64Image: string;
-      mimeType: string;
-      restaurantName?: string;
-    }) => {
+    mutationFn: async (payload: { base64Image: string; mimeType: string }) => {
       setScanStep("Reading menu image with Gemini AI...");
       await new Promise((r) => setTimeout(r, 400));
       setScanStep("Calculating health scores & nutrient breakdown...");
@@ -70,7 +64,6 @@ export function MenuScanner({
         data: {
           base64Image: payload.base64Image,
           mimeType: payload.mimeType,
-          restaurantName: payload.restaurantName,
           restrictions,
           healthConditions,
           language,
@@ -110,28 +103,9 @@ export function MenuScanner({
       scanMutation.mutate({
         base64Image: base64,
         mimeType: file.type || "image/jpeg",
-        restaurantName: restaurantInput.trim() || undefined,
       });
     };
     reader.readAsDataURL(file);
-  };
-
-  const handleSelectSample = (sample: SampleMenu) => {
-    if (!isPremium && freeScansRemaining <= 0) {
-      onOpenPremiumModal();
-      return;
-    }
-
-    setSelectedImage(`data:${sample.mimeType};base64,${sample.base64Data}`);
-    setMimeType(sample.mimeType);
-    setRestaurantInput(sample.name);
-    setScannedResult(null);
-
-    scanMutation.mutate({
-      base64Image: sample.base64Data,
-      mimeType: sample.mimeType,
-      restaurantName: sample.name,
-    });
   };
 
   const handleResetScan = () => {
@@ -246,46 +220,6 @@ export function MenuScanner({
               onChange={handleFileChange}
             />
           </div>
-
-          {/* Optional Venue Name Input */}
-          <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">
-              Optional Venue Name (e.g., "Joe's Deli" or "Corner Bistro")
-            </label>
-            <input
-              type="text"
-              value={restaurantInput}
-              onChange={(e) => setRestaurantInput(e.target.value)}
-              placeholder="Enter deli or restaurant name (optional)..."
-              className="w-full rounded-full border border-border bg-background px-4 py-2.5 text-xs outline-none focus:border-foreground"
-            />
-          </div>
-
-          {/* Sample Menus Section */}
-          <div className="border-t border-border pt-4">
-            <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-3">
-              🧪 Try Sample Menus (Instant AI Test)
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {SAMPLE_MENUS.map((sample) => (
-                <button
-                  key={sample.id}
-                  onClick={() => handleSelectSample(sample)}
-                  className="rounded-2xl border border-border bg-background p-3.5 text-left hover:border-foreground transition active:scale-[0.98] flex items-center gap-3"
-                >
-                  <div className="h-10 w-10 rounded-xl bg-secondary flex items-center justify-center text-xl shrink-0">
-                    📜
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-foreground truncate">{sample.name}</p>
-                    <p className="text-[10px] text-muted-foreground truncate">
-                      {sample.description}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       )}
 
@@ -294,7 +228,7 @@ export function MenuScanner({
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground">
-              {scannedResult?.restaurantName || restaurantInput || "Scanned Menu"}
+              {scannedResult?.restaurantName || "Scanned Menu"}
             </span>
             <button
               onClick={handleResetScan}

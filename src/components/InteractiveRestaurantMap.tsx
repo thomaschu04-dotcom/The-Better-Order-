@@ -3,7 +3,6 @@ import {
   APIProvider,
   Map,
   AdvancedMarker,
-  Pin,
   InfoWindow,
   useMap,
   useMapsLibrary,
@@ -351,12 +350,17 @@ export function InteractiveRestaurantMap({
                     setShowRoute(true);
                   }}
                 >
-                  <Pin
-                    background={isSelected ? "#E0533C" : "#2E6F40"}
-                    borderColor={isSelected ? "#ffffff" : "#1e4829"}
-                    glyphColor="#ffffff"
-                    scale={isSelected ? 1.25 : 1.0}
-                  />
+                  <div
+                    className={
+                      "flex items-center gap-1.5 px-2.5 py-1 rounded-full font-bold text-xs shadow-lg border transition-transform cursor-pointer " +
+                      (isSelected
+                        ? "bg-[#E0533C] text-white border-white ring-2 ring-[#E0533C]/50 scale-110 z-30"
+                        : "bg-[#2E6F40] text-white border-white/80 hover:scale-105 z-10")
+                    }
+                  >
+                    <span>📍</span>
+                    <span className="truncate max-w-[100px]">{p.chain}</span>
+                  </div>
                 </AdvancedMarker>
               );
             })}

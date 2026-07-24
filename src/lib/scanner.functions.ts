@@ -1,8 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { GoogleGenAI, Type } from "@google/genai";
-import { generateText } from "ai";
 import { z } from "zod";
-import { createLovableAiGatewayProvider } from "./ai-gateway.server";
 import {
   RESTRICTIONS,
   HEALTH_CONDITIONS,
@@ -63,9 +61,9 @@ function extractJson(text: string): unknown {
 export const scanMenuImage = createServerFn({ method: "POST" })
   .validator((d: unknown) => ScanInput.parse(d))
   .handler(async ({ data }): Promise<ScannedMenuResult> => {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.LOVABLE_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error("API key is not configured for AI scanning.");
+      throw new Error("GEMINI_API_KEY is not configured for AI scanning.");
     }
 
     const restrictionLabels = data.restrictions
@@ -130,100 +128,73 @@ Return ONLY a JSON object in this exact schema:
   ]
 }`;
 
-    if (process.env.GEMINI_API_KEY) {
-      // Use official @google/genai SDK directly
-      const ai = new GoogleGenAI({
-        apiKey: process.env.GEMINI_API_KEY,
-        httpOptions: {
-          headers: {
-            "User-Agent": "aistudio-build",
-          },
+    // Use official @google/genai SDK directly
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
         },
-      });
+      },
+    });
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.6-flash",
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType: data.mimeType,
-                data: cleanBase64,
-              },
-            },
-            {
-              text: systemPrompt,
-            },
-          ],
-        },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              restaurantName: { type: Type.STRING },
-              summary: { type: Type.STRING },
-              items: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    description: { type: Type.STRING },
-                    ingredients: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                    },
-                    price_usd: { type: Type.NUMBER },
-                    calories: { type: Type.NUMBER },
-                    protein_g: { type: Type.NUMBER },
-                    carbs_g: { type: Type.NUMBER },
-                    fat_g: { type: Type.NUMBER },
-                    fiber_g: { type: Type.NUMBER },
-                    sugar_g: { type: Type.NUMBER },
-                    sodium_mg: { type: Type.NUMBER },
-                    gluten_free: { type: Type.BOOLEAN },
-                    healthScore: { type: Type.NUMBER },
-                    matchReason: { type: Type.STRING },
-                    isTopChoice: { type: Type.BOOLEAN },
-                  },
-                  required: ["name", "calories", "protein_g", "carbs_g", "fat_g", "healthScore"],
-                },
-              },
-            },
-            required: ["restaurantName", "summary", "items"],
-          },
-        },
-      });
-
-      const text = response.text;
-      if (!text) throw new Error("Empty response from AI menu scanner.");
-      const parsed = JSON.parse(text);
-      return ScannedMenuSchema.parse(parsed);
-    } else {
-      // Fallback via Vercel AI SDK / Gateway provider
-      const gateway = createLovableAiGatewayProvider(apiKey);
-      const { text } = await generateText({
-        model: gateway("google/gemini-2.5-flash"),
-        maxOutputTokens: 4096,
-        messages: [
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: {
+        parts: [
           {
-            role: "user",
-            content: [
-              {
-                type: "image",
-                image: `data:${data.mimeType};base64,${cleanBase64}`,
-              },
-              {
-                type: "text",
-                text: systemPrompt,
-              },
-            ],
+            inlineData: {
+              mimeType: data.mimeType,
+              data: cleanBase64,
+            },
+          },
+          {
+            text: systemPrompt,
           },
         ],
-      });
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            restaurantName: { type: Type.STRING },
+            summary: { type: Type.STRING },
+            items: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  ingredients: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                  },
+                  price_usd: { type: Type.NUMBER },
+                  calories: { type: Type.NUMBER },
+                  protein_g: { type: Type.NUMBER },
+                  carbs_g: { type: Type.NUMBER },
+                  fat_g: { type: Type.NUMBER },
+                  fiber_g: { type: Type.NUMBER },
+                  sugar_g: { type: Type.NUMBER },
+                  sodium_mg: { type: Type.NUMBER },
+                  gluten_free: { type: Type.BOOLEAN },
+                  healthScore: { type: Type.NUMBER },
+                  matchReason: { type: Type.STRING },
+                  isTopChoice: { type: Type.BOOLEAN },
+                },
+                required: ["name", "calories", "protein_g", "carbs_g", "fat_g", "healthScore"],
+              },
+            },
+          },
+          required: ["restaurantName", "summary", "items"],
+        },
+      },
+    });
 
-      const parsed = extractJson(text);
-      return ScannedMenuSchema.parse(parsed);
-    }
+    const text = response.text;
+    if (!text) throw new Error("Empty response from AI menu scanner.");
+    const parsed = JSON.parse(text);
+    return ScannedMenuSchema.parse(parsed);
   });
